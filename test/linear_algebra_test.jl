@@ -278,6 +278,23 @@ import DoubleFloats: Double64, ComplexDF64
 		@test comp_cond === cond(JM)
 	end
 
+	@testset "JacobianMonitor ldiv updates" begin
+		A = randn(ComplexF64, 6, 6)
+		b = randn(ComplexF64, 6)
+		x̂ = similar(b)
+		x = similar(b)
+		JM = HC.JacobianMonitor(zeros(ComplexF64, 6, 6))
+		@test JM isa HC.JacobianMonitor
+		ldiv!(x, jacobian(JM), b, HC.InfNorm(), HC.JAC_MONITOR_UPDATE_FERR)
+		@test HC.forward_err(JM) != 0.0
+		ldiv!(x, jacobian(JM), b, HC.InfNorm(), HC.JAC_MONITOR_UPDATE_COND)
+		@test cond(JM) != 1.0
+		JM = HC.JacobianMonitor(zeros(ComplexF64, 6, 6))
+		ldiv!(x, jacobian(JM), b, HC.InfNorm(), HC.JAC_MONITOR_UPDATE_ALL)
+		@test cond(JM) != 1.0
+		@test HC.forward_err(JM) != 0.0
+	end
+
 	@testset "Hermite Normal Form" begin
         A = [0 3 1 0; -2 2 -1 2; 1 -1 2 3; -3 3 3 2]
         H, U = HC.hnf(A)

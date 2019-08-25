@@ -84,26 +84,6 @@ Base.show(io::IO, ::MIME"application/prs.juno.inline", result::CoreTrackerResult
 ## PATH TRACKER ##
 ##################
 
-"""
-    AutoScalingOptions(;scale_min=0.01,
-                     scale_abs_min=min(scale_min^2, 200 * sqrt(eps()),
-                     scale_max=1.0 / eps() / sqrt(2)
-
-Parameters for the auto scaling of the variables.
-"""
-struct AutoScalingOptions
-    scale_min::Float64
-    scale_abs_min::Float64
-    scale_max::Float64
-end
-function AutoScalingOptions(;scale_min=0.01,
-                             scale_abs_min=min(scale_min^2, 200 * sqrt(eps())),
-                             scale_max=1.0 / eps() / sqrt(2))
-    AutoScalingOptions(scale_min, scale_abs_min, scale_max)
-end
-Base.show(io::IO, opts::AutoScalingOptions) = print_fieldnames(io, opts)
-Base.show(io::IO, ::MIME"application/prs.juno.inline", opts::AutoScalingOptions) = opts
-
 mutable struct StepSizeModel
     ω::Float64
     expected_Δx₀::Float64
@@ -140,8 +120,6 @@ mutable struct CoreTrackerOptions
     simple_step_size_alg::Bool
     update_patch::Bool
     max_lost_digits::Float64
-    auto_scaling::Bool
-    auto_scaling_options::AutoScalingOptions
     terminate_ill_conditioned::Bool
     precision::PrecisionOption
     steps_jacobian_info_update::Int
@@ -149,8 +127,6 @@ end
 
 function CoreTrackerOptions(;
     accuracy=1e-7,
-    auto_scaling=true,
-    auto_scaling_options=AutoScalingOptions(),
     initial_step_size=0.1,
     max_corrector_iters::Int=2,
     max_refinement_iters=5,
@@ -168,8 +144,7 @@ function CoreTrackerOptions(;
 
     CoreTrackerOptions(accuracy, max_corrector_iters, refinement_accuracy,
             max_refinement_iters, max_steps, initial_step_size, min_step_size,
-            max_step_size, simple_step_size_alg, update_patch, max_lost_digits,
-            auto_scaling, auto_scaling_options, terminate_ill_conditioned,
+            max_step_size, simple_step_size_alg, update_patch, max_lost_digits, terminate_ill_conditioned,
             precision, steps_jacobian_info_update)
 end
 
@@ -192,19 +167,19 @@ end
 # CoreTrackerState #
 ####################
 
-mutable struct CoreTrackerState{T, AV<:AbstractVector{T}, MaybePatchState <: Union{AbstractAffinePatchState, Nothing}, IP}
+mutable struct CoreTrackerState{T, AV<:AbstractVector{Complex{T}}, MaybePatchState <: Union{AbstractAffinePatchState, Nothing}, AN<:AbstractNorm}
     x::AV # current x
     x̂::AV # last prediction
     x̄::AV # canidate for new x
-    ẋ::Vector{T} # derivative at current x
-    inner_product::IP
+    ẋ::Vector{Complex{T}} # derivative at current x
+    norm::AN
     step_size::StepSizeModel
     segment::ComplexSegment
     s::Float64 # current step length (0 ≤ s ≤ length(segment))
     Δs::Float64 # current step size
     Δs_prev::Float64 # previous step size
     accuracy::Float64
-    jacobian::Jacobian{T}
+    jacobian::JacobianMonitor{T}
     steps_jacobian_info_update::Int
     status::CoreTrackerStatus.states
     patch::MaybePatchState
@@ -215,8 +190,8 @@ mutable struct CoreTrackerState{T, AV<:AbstractVector{T}, MaybePatchState <: Uni
 end
 
 function CoreTrackerState(H, x₁::AbstractVector, t₁, t₀, options::CoreTrackerOptions,
-                           patch::Union{Nothing, AbstractAffinePatchState}=nothing,
-                           inner_product::AbstractInnerProduct=EuclideanIP())
+                           patch::Union{Nothing, AbstractAffinePatchState},
+                           norm::AbstractNorm)
     if isa(x₁, SVector)
         x = Vector(x₁)
     else
@@ -236,7 +211,7 @@ function CoreTrackerState(H, x₁::AbstractVector, t₁, t₀, options::CoreTrac
     status = CoreTrackerStatus.tracking
     last_step_failed = false
     consecutive_successfull_steps = 0
-    CoreTrackerState(x, x̂, x̄, ẋ, inner_product, step_size_model, segment, s, Δs, Δs_prev, accuracy,
+    CoreTrackerState(x, x̂, x̄, ẋ, norm, step_size_model, segment, s, Δs, Δs_prev, accuracy,
         Jac, steps_jacobian_info_update, status, patch,
         accepted_steps, rejected_steps, last_step_failed, consecutive_successfull_steps)
 end
@@ -258,10 +233,7 @@ function reset!(state::CoreTrackerState, x₁::AbstractVector, t₁, t₀, optio
         state.accuracy = 0.0
         state.accepted_steps = state.rejected_steps = 0
         reset!(state.step_size)
-
-        if options.auto_scaling
-            init_auto_scaling!(state.inner_product, state.x, options.auto_scaling_options)
-        end
+        init!(state.norm, state.x)
         reset!(state.jacobian)
         state.steps_jacobian_info_update = 0
     end
@@ -271,22 +243,6 @@ end
 
 embed!(x::ProjectiveVectors.PVector, y) = ProjectiveVectors.embed!(x, y)
 embed!(x::AbstractVector, y) = x .= y
-
-function init_auto_scaling!(ip::WeightedIP, x::AbstractVector, opts::AutoScalingOptions)
-    point_norm = euclidean_norm(x)
-    w = ip.weight
-    for i in 1:length(w)
-        wᵢ = abs(x[i])
-        if wᵢ < opts.scale_min * point_norm
-            wᵢ = opts.scale_min * point_norm
-        elseif wᵢ > opts.scale_max * point_norm
-            wᵢ = opts.scale_max * point_norm
-        end
-        w[i] = max(wᵢ, opts.scale_abs_min)
-    end
-    nothing
-end
-init_auto_scaling!(ip::EuclideanIP, x::AbstractVector, opts::AutoScalingOptions) = nothing
 
 ####################
 # CoreTrackerCache #
@@ -364,6 +320,8 @@ function CoreTracker(homotopy::AbstractHomotopy, x₁::ProjectiveVectors.PVector
     corrector::AbstractCorrector=NewtonCorrector(),
     predictor::AbstractPredictor=default_predictor(x₁),
     log_transform=false,
+    auto_scaling=true,
+    norm::AbstractNorm=InfNorm(),
     simple_step_size_alg=!isa(patch, EmbeddingPatch), kwargs...)
 
     options = CoreTrackerOptions(;
@@ -379,13 +337,13 @@ function CoreTracker(homotopy::AbstractHomotopy, x₁::ProjectiveVectors.PVector
     # We close over the patch state, the homotopy and its cache
     # to be able to pass things around more easily
     HC = HomotopyWithCache(PatchedHomotopy(H, patch_state), x₁, t₁)
-    if is_global_patch(patch) && options.auto_scaling
-        inner_product = WeightedIP(x₁)
+    if is_global_patch(patch) && auto_scaling
+        used_norm = WeightedNorm(norm, x₁)
     else
-        inner_product = EuclideanIP()
+        used_norm = norm
     end
     # We have to make sure that the element type of x is invariant under evaluation
-    tracker_state = CoreTrackerState(HC, indempotent_x(HC, x₁, t₁), t₁, t₀, options, patch_state, inner_product)
+    tracker_state = CoreTrackerState(HC, indempotent_x(HC, x₁, t₁), t₁, t₀, options, patch_state, used_norm)
     cache = CoreTrackerCache(HC, predictor, corrector, tracker_state)
 
     CoreTracker(H, predictor, corrector, patch, tracker_state, options, cache)
@@ -396,7 +354,10 @@ function CoreTracker(homotopy::AbstractHomotopy, x₁::AbstractVector, t₁, t�
     patch=nothing,
     corrector::AbstractCorrector=NewtonCorrector(),
     predictor::AbstractPredictor=default_predictor(x₁),
-    log_transform=false, kwargs...)
+    log_transform=false,
+    auto_scaling=true,
+    norm::AbstractNorm=InfNorm(),
+    kwargs...)
 
     if patch !== nothing
         throw(ArgumentError("You can only pass `patch=$(patch)` if `affine_tracking=false`."))
@@ -409,9 +370,9 @@ function CoreTracker(homotopy::AbstractHomotopy, x₁::AbstractVector, t₁, t�
     # to be able to pass things around more easily
     HC = HomotopyWithCache(H, Vector(x₁), t₁)
 
-    inner_product = options.auto_scaling ? WeightedIP(x₁) : EuclideanIP()
+    used_norm = auto_scaling ? WeightedNorm(norm, x₁) : norm
     # We have to make sure that the element type of x is invariant under evaluation
-    tracker_state = CoreTrackerState(HC, indempotent_x(HC, x₁, t₁), t₁, t₀, options, nothing, inner_product)
+    tracker_state = CoreTrackerState(HC, indempotent_x(HC, x₁, t₁), t₁, t₀, options, nothing, used_norm)
     cache = CoreTrackerCache(HC, predictor, corrector, tracker_state)
 
     CoreTracker(H, predictor, corrector, nothing, tracker_state, options, cache)
@@ -535,7 +496,7 @@ end
 
 function checkstartvalue(tracker::CoreTracker, x, t)
     embed!(tracker.state.x̄, x)
-    init_auto_scaling!(tracker.state.inner_product, tracker.state.x̄, tracker.options.auto_scaling_options)
+    init!(tracker.state.norm, tracker.state.x̄)
     result = correct!(tracker.state.x̄, tracker, x, t; update_jacobian_infos=true)
     isconverged(result)
 end
@@ -566,18 +527,17 @@ end
 @inline function correct!(x̄, tracker::CoreTracker,
         x=tracker.state.x,
         t=tracker.state.segment[tracker.state.s],
-        norm=tracker.state.inner_product;
+        norm=tracker.state.norm;
         accuracy::Float64=tracker.options.accuracy,
         max_iters::Int=tracker.options.max_corrector_iters,
         precision::PrecisionOption=tracker.options.precision,
-        update_jacobian_infos::Bool=false,
-        use_qr::Bool=false)
+        update_jacobian_infos::Bool=false)
 
     correct!(x̄, tracker.corrector, tracker.cache.corrector,
              tracker.cache.homotopy, x, t, norm, tracker.state.jacobian,
              accuracy, max_iters, tracker.state.step_size;
              precision=precision,
-             update_jacobian_infos=update_jacobian_infos, use_qr=use_qr)
+             update_jacobian_infos=update_jacobian_infos)
 end
 
 function step!(tracker::CoreTracker)
@@ -608,7 +568,7 @@ function step!(tracker::CoreTracker)
             if state.patch !== nothing && options.update_patch
                 changepatch!(state.patch, x)
             end
-            options.auto_scaling && auto_scaling!(state, options)
+            update!(state.norm, options)
             # update derivative
             compute_ẋ!(state, cache, options)
             # tell the predictors about the new derivative if they need to update something
@@ -688,7 +648,7 @@ function update_stepsize!(tracker::CoreTracker, result::CorrectorResult)
         d_x̂_x̄ = result.norm_Δx₀
     else
         ω = result.ω₀
-        d_x̂_x̄ = distance(state.x̂, state.x, state.inner_product)
+        d_x̂_x̄ = state.norm(state.x̂, state.x)
     end
     Δx₀ = result.norm_Δx₀
     if isconverged(result)
@@ -753,23 +713,6 @@ function simple_step_size_alg!(tracker::CoreTracker, result::CorrectorResult)
     end
 end
 
-function auto_scaling!(state::CoreTrackerState, options::CoreTrackerOptions)
-    auto_scaling!(state.inner_product, state.x, options.auto_scaling_options)
-end
-function auto_scaling!(ip::WeightedIP, x::AbstractVector, opts::AutoScalingOptions)
-    norm_x = ip(x)
-    for i in 1:length(x)
-        wᵢ = (abs(x[i]) + ip.weight[i]) / 2
-        if wᵢ < opts.scale_min * norm_x
-            wᵢ = opts.scale_min * norm_x
-        elseif wᵢ > opts.scale_max * norm_x
-            wᵢ = opts.scale_max * norm_x
-        end
-        ip.weight[i] = max(wᵢ, opts.scale_abs_min)
-    end
-    nothing
-end
-auto_scaling!(ip::EuclideanIP, x::AbstractVector, opts::AutoScalingOptions) = nothing
 
 function check_terminated!(tracker::CoreTracker)
     if abs(tracker.state.s - length(tracker.state.segment)) < 2eps(length(tracker.state.segment))
@@ -884,12 +827,12 @@ digits_lost(state::CoreTrackerState) = unpack(state.jacobian.digits_lost, 0.0)
 
 
 """
-    inner(tracker::CoreTracker)
+    norm(tracker::CoreTracker)
 
-Returns the inner product used to compute distance during the path tracking.
+Returns the norm used to compute distances during the path tracking.
 """
-inner(tracker::CoreTracker) = inner(tracker.state)
-inner(state::CoreTrackerState) = state.inner_product
+norm(tracker::CoreTracker) = norm(tracker.state)
+norm(state::CoreTrackerState) = state.norm
 
 """
     options(tracker::CoreTracker)

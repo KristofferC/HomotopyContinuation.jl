@@ -170,7 +170,8 @@ function lu!(A::AbstractMatrix{T},
                     end
                 end
                 # Scale first column
-                Akkinv = @fastmath inv(A[k,k])
+                # Akkinv = @fastmath inv(A[k,k])
+                Akkinv = inv(A[k,k])
                 for i = k+1:m
                     A[i,k] *= Akkinv
                 end
@@ -271,7 +272,8 @@ end
     n = size(A, 2)
     @inbounds for j in n:-1:1
         singular_exception && iszero(A[j,j]) && throw(LA.SingularException(j))
-        xj = x[j] = (@fastmath A[j,j] \ b[j])
+        # xj = x[j] = (@fastmath A[j,j] \ b[j])
+        xj = x[j] = A[j,j] \ b[j]
         for i in 1:(j-1)
             b[i] -= A[i,j] * xj
         end
@@ -656,20 +658,28 @@ struct JacobianMonitor{T}
     J::MatrixWorkspace{T}
     cond::Base.RefValue{Float64}
     forward_err::Base.RefValue{Float64}
-    corank::Int # not used currently
 end
 function JacobianMonitor(A::AbstractMatrix)
     J = MatrixWorkspace(A)
     cond = Ref(1.0)
     forward_err = Ref(0.0)
-    corank = 0
-    JacobianMonitor(J, cond, forward_err, corank)
+    JacobianMonitor(J, cond, forward_err)
 end
-
 
 updated!(JM::JacobianMonitor) = updated!(JM.J)
 jacobian(JM::JacobianMonitor) = JM.J
-LA.ldiv!(x::AbstractVector, JM::JacobianMonitor, b::AbstractVector) = LA.ldiv!(x, JM.J, b)
+
+function Base.show(io::IO, JM::JacobianMonitor{T}) where {T}
+    println(io, "JacobianMonitor{$T}:")
+    println(io, " • cond → ", round(JM.cond[], sigdigits=5))
+    println(io, " • forward_err → ", round(JM.forward_err[], sigdigits=5))
+end
+
+function reset!(JM::JacobianMonitor)
+    JM.cond[] = 1.0
+    JM.forward_err[] = 0.0
+    JM
+end
 
 """
     forward_err(JM::JacobianMonitor)
@@ -710,7 +720,16 @@ function strong_forward_err!(x::AbstractVector, JM::JacobianMonitor, x̂::Abstra
     norm_x̂ = norm(x̂)
     WS = jacobian(JM)
     residual!(WS.ir_r, WS.A, x̂, b, T)
-    WS.residual_abs .= abs.(WS.ir_r)
+    WS.residual_abs .= abs.(b)
+    for j in 1:size(WS.A, 2)
+        ax̂ⱼ = abs(x̂[j])
+        for i in 1:size(WS.A, 1)
+            WS.residual_abs[i] += abs(WS.A[i,j]) * ax̂ⱼ
+        end
+    end
+    WS.residual_abs .*= eps()
+    WS.residual_abs .+= abs.(WS.ir_r)
+
     if norm isa WeightedNorm
         JM.forward_err[] = inf_norm_est(WS, WS.residual_abs, weights(norm)) / norm_x̂
     else
@@ -742,6 +761,48 @@ end
 Returns the with [`cond!`](@ref) computed condition number.
 """
 LA.cond(JM::JacobianMonitor) = JM.cond[]
+
+"""
+    enum JacobianMonitorUpdates
+
+## Cases
+
+* `JAC_MONITOR_UPDATE_NOTHING`: Do nothing
+* `JAC_MONITOR_UPDATE_FERR`: Update the forward error estimate
+* `JAC_MONITOR_UPDATE_COND`: Update the condition number estimate
+* `JAC_MONITOR_UPDATE_ALL`: Update the forward error and condition number estimate
+"""
+@enum JacobianMonitorUpdates begin
+    JAC_MONITOR_UPDATE_NOTHING
+    JAC_MONITOR_UPDATE_FERR
+    JAC_MONITOR_UPDATE_COND
+    JAC_MONITOR_UPDATE_ALL
+end
+
+"""
+    ldiv!(x̂::AbstractVector,
+                  JM::JacobianMonitor,
+                  b::AbstractVector,
+                  norm::AbstractNorm,
+                  update::JacobianMonitorUpdates=JAC_MONITOR_UPDATE_NOTHING)
+
+solve the linear system `jacobian(JM)x̂=b`. `update` controls the computation of additional
+informations, see [`JacobianMonitorUpdates`](@ref).
+"""
+function LA.ldiv!(x̂::AbstractVector,
+                  JM::JacobianMonitor,
+                  b::AbstractVector,
+                  norm::AbstractNorm,
+                  update::JacobianMonitorUpdates=JAC_MONITOR_UPDATE_NOTHING)
+    LA.ldiv!(x̂, jacobian(JM), b)
+    if update == JAC_MONITOR_UPDATE_FERR || update == JAC_MONITOR_UPDATE_ALL
+        forward_err!(JM, x̂, b, norm)
+    end
+    if update == JAC_MONITOR_UPDATE_COND || update == JAC_MONITOR_UPDATE_ALL
+        cond!(JM)
+    end
+    x̂
+end
 
 #########################
 ## Hermite Normal Form ##

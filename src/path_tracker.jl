@@ -296,9 +296,9 @@ struct PathTrackerCache{T, V<:AbstractVector{Complex{T}}, S<:AbstractSystem, NC<
     base_point::V
     target_system::S
     target_residual::Vector{Complex{T}}
-    target_jacobian::Jacobian{Complex{T}}
+    target_jacobian::JacobianMonitor{T}
     target_newton_cache::NC
-    weighted_ip::WeightedIP{T}
+    norm::WeightedNorm{InfNorm}
 end
 
 function PathTrackerCache(prob::Problem, core_tracker::CoreTracker)
@@ -322,7 +322,7 @@ function PathTrackerCache(prob::Problem, core_tracker::CoreTracker)
 
     res = evaluate(target_system, current_x(core_tracker), target_newton_cache.system_cache)
     jac = similar(res, size(target_system))
-    weighted_ip = WeightedIP(x)
+    weighted_ip = WeightedNorm(InfNorm(), x)
     PathTrackerCache(unit_roots, base_point, target_system, res, Jacobian(Random.rand!(jac)), target_newton_cache, weighted_ip)
 end
 
@@ -665,7 +665,7 @@ function predict_with_cauchy_integral_method!(state, core_tracker, options, cach
             prediction .+= current_x(core_tracker)
         end
 
-        if distance(base_point, current_x(core_tracker), inner(core_tracker)) < 4core_tracker.options.accuracy
+        if norm(core_tracker)(base_point, current_x(core_tracker)) < 4core_tracker.options.accuracy
             break
         end
 
