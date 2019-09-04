@@ -11,7 +11,7 @@ struct MatrixWorkspace{T} <: AbstractMatrix{Complex{T}}
     # factorizations
     fact::Base.RefValue{Factorization}
     factorized::Base.RefValue{Bool}
-    lu::Union{Nothing, LA.LU{Complex{T},Matrix{Complex{T}}}} # LU Factorization of D * J
+    lu::Union{Nothing,LA.LU{Complex{T},Matrix{Complex{T}}}} # LU Factorization of D * J
     qr::LA.QRPivoted{Complex{T},Matrix{Complex{T}}} # Pivoted QR Factorization of D * J
     # qr worksapce
     qr_perm::Vector{Int} # work copy of the permutation in the qr
@@ -42,7 +42,7 @@ function MatrixWorkspace(Â::AbstractMatrix, ::Type{T}) where {T}
     d = ones(m)
     fact = m == n ? LU_FACT : QR_FACT
     # lu
-    lu = m == n ? LA.lu(A; check=false) : nothing
+    lu = m == n ? LA.lu(A; check = false) : nothing
     # qr
     qr = LA.qr(A, Val(true))
     qr_perm = zeros(Int, length(qr.p))
@@ -130,11 +130,11 @@ end
 #    the pivot vector anymore and also avoid the allocations
 #    coming from the LU wrapper
 function lu!(A::AbstractMatrix{T},
-             b::Union{AbstractVector, Nothing}=nothing,
-             ipiv::Union{Vector{I}, Nothing}=nothing,
-             ::Val{Pivot} = Val(true)) where {T,I<:Integer,Pivot}
+             b::Union{AbstractVector,Nothing} = nothing,
+             ipiv::Union{Vector{I},Nothing} = nothing,
+             ::Val{Pivot} = Val(true)) where {T,I <: Integer,Pivot}
     m, n = size(A)
-    minmn = min(m,n)
+    minmn = min(m, n)
     # LU Factorization
     @inbounds begin
         for k = 1:minmn
@@ -172,14 +172,14 @@ function lu!(A::AbstractMatrix{T},
                 # Scale first column
                 # Akkinv = @fastmath inv(A[k,k])
                 Akkinv = inv(A[k,k])
-                for i = k+1:m
+                for i = k + 1:m
                     A[i,k] *= Akkinv
                 end
             end
             # Update the rest
-            for j = k+1:n
+            for j = k + 1:n
                 A_kj = A[k,j]
-                for i = k+1:m
+                for i = k + 1:m
                     A[i,j] -= A[i,k] * A_kj
                 end
             end
@@ -204,9 +204,9 @@ function geqp3!(A::AbstractMatrix{ComplexF64},
     jpvt::AbstractVector{BlasInt},
     tau::AbstractVector{ComplexF64},
     work::Vector{ComplexF64},
-    rwork=Vector{Float64}(undef, 2*size(A,2)))
-    m,n = size(A)
-    lda = stride(A,2)
+    rwork = Vector{Float64}(undef, 2 * size(A, 2)))
+    m, n = size(A)
+    lda = stride(A, 2)
     lda == 0 && return nothing
     jpvt .= BlasInt(0)
     lwork = BlasInt(-1)
@@ -253,7 +253,7 @@ end
 ## ldiv ##
 ##########
 @inline _ipiv!(A::LA.LU, b::AbstractVector) = apply_ipiv!(b, 1:length(A.ipiv), A.ipiv)
-@inline _inverse_ipiv!(A::LA.LU, b::StridedVecOrMat) = apply_ipiv!(b, length(A.ipiv) : -1 : 1, A.ipiv)
+@inline _inverse_ipiv!(A::LA.LU, b::StridedVecOrMat) = apply_ipiv!(b, length(A.ipiv):-1:1, A.ipiv)
 @inline function apply_ipiv!(b::AbstractVector, range::OrdinalRange, ipiv)
     @inbounds for i = range
         if i != ipiv[i]
@@ -263,18 +263,18 @@ end
     b
 end
 @inline function _swap_rows!(B::StridedVector, i::Integer, j::Integer)
-     B[i], B[j] = B[j], B[i]
+    B[i], B[j] = B[j], B[i]
     B
 end
 
 
-@inline function ldiv_upper!(A::AbstractMatrix, b::AbstractVector, x::AbstractVector = b; singular_exception::Bool=true)
+@inline function ldiv_upper!(A::AbstractMatrix, b::AbstractVector, x::AbstractVector = b; singular_exception::Bool = false)
     n = size(A, 2)
     @inbounds for j in n:-1:1
         singular_exception && iszero(A[j,j]) && throw(LA.SingularException(j))
         # xj = x[j] = (@fastmath A[j,j] \ b[j])
         xj = x[j] = A[j,j] \ b[j]
-        for i in 1:(j-1)
+        for i in 1:(j - 1)
             b[i] -= A[i,j] * xj
         end
     end
@@ -284,18 +284,18 @@ end
     n = size(A, 2)
     @inbounds for j in 1:n
         xj = x[j] = b[j]
-        for i in j+1:n
+        for i in j + 1:n
             b[i] -= A[i,j] * xj
         end
     end
     x
 end
 
-function lu_ldiv!(x, LU::LA.LU, b::AbstractVector; check::Bool=false)
+function lu_ldiv!(x, LU::LA.LU, b::AbstractVector; check::Bool = false)
     x === b || copyto!(x, b)
-     _ipiv!(LU, x)
+    _ipiv!(LU, x)
     ldiv_unit_lower!(LU.factors, x)
-    ldiv_upper!(LU.factors, x; singular_exception=check)
+    ldiv_upper!(LU.factors, x; singular_exception = check)
     x
 end
 
@@ -303,20 +303,20 @@ end
 function ldiv_adj_unit_lower!(A::AbstractMatrix, b::AbstractVector, x::AbstractVector = b)
     n = size(A, 1)
     @inbounds for j in n:-1:1
-       z = b[j]
-       for i in n:-1:j+1
-           z -= conj(A[i,j]) * x[i]
-       end
-       x[j] = z
+        z = b[j]
+        for i in n:-1:j + 1
+            z -= conj(A[i,j]) * x[i]
+        end
+        x[j] = z
     end
     x
 end
 
-function ldiv_adj_upper!(A::AbstractMatrix, b::AbstractVector, x::AbstractVector = b; singular_exception::Bool=true)
+function ldiv_adj_upper!(A::AbstractMatrix, b::AbstractVector, x::AbstractVector = b; singular_exception::Bool = false)
     n = size(A, 1)
     @inbounds for j in 1:n
         z = b[j]
-        for i in 1:j-1
+        for i in 1:j - 1
             z -= conj(A[i,j]) * x[i]
         end
         iszero(A[j,j]) && singular_exception && throw(SingularException(j))
@@ -325,9 +325,9 @@ function ldiv_adj_upper!(A::AbstractMatrix, b::AbstractVector, x::AbstractVector
     x
 end
 
-function lu_ldiv_adj!(x, LU::LA.LU, b::AbstractVector; check::Bool=false)
+function lu_ldiv_adj!(x, LU::LA.LU, b::AbstractVector; check::Bool = false)
     x === b || copyto!(x, b)
-    ldiv_adj_upper!(LU.factors, x; singular_exception=check)
+    ldiv_adj_upper!(LU.factors, x; singular_exception = check)
     ldiv_adj_unit_lower!(LU.factors, x)
     _inverse_ipiv!(LU, x)
     x
@@ -345,7 +345,7 @@ for `side = R` using `Q` from a `QR` factorization of `A` computed using
 function ormqr!(side::AbstractChar, trans::AbstractChar, A::Matrix{ComplexF64},
                 tau::Vector{ComplexF64}, C::Vector{ComplexF64},
                 work::Vector{ComplexF64})
-    m,n = (size(C, 1), 1)
+    m, n = (size(C, 1), 1)
     mA  = size(A, 1)
     k   = length(tau)
     lwork = BlasInt(-1)
@@ -357,8 +357,8 @@ function ormqr!(side::AbstractChar, trans::AbstractChar, A::Matrix{ComplexF64},
                Ptr{ComplexF64}, Ref{BlasInt}, Ptr{ComplexF64}, Ref{BlasInt},
                Ptr{BlasInt}),
               side, trans, m, n,
-              k, A, max(1,stride(A,2)), tau,
-              C, max(1, stride(C,2)), work, lwork,
+              k, A, max(1, stride(A, 2)), tau,
+              C, max(1, stride(C, 2)), work, lwork,
               info)
         LA.LAPACK.chklapackerror(info[])
         if i == 1
@@ -375,14 +375,14 @@ function qr_ldiv!(x, A::LA.QRPivoted{ComplexF64},
       #corank::Int,
       )
     mA, nA = size(A.factors)
-    nr = min(mA,nA)
+    nr = min(mA, nA)
     nrhs = length(b)
     nr == 0 &&  return x
 
     # The following is equivalent to LA.lmul!(LA.adjoint(A.Q), b) but
     # we can also pass the preallocated work vector
     ormqr!('L', 'C', A.factors, A.τ, b, ormqr_work)
-    ldiv_upper!(A.factors, b; singular_exception=false)
+    ldiv_upper!(A.factors, b; singular_exception = false)
     @inbounds for i in 1:nr
         x[i] = b[i]
         perm[i] = A.p[i]
@@ -441,8 +441,8 @@ Compute the residual `Ax-b` in precision `T` and store in `u`.
 """
 function residual!(u::AbstractVector{S}, A::AbstractMatrix{S},
                    x::AbstractVector{S}, b::AbstractVector{S},
-       ::Type{T}=eltype(u)) where {S,T}
-    @boundscheck size(A, 1) == length(b) && size(A,2) == length(x)
+       ::Type{T} = eltype(u)) where {S,T}
+    @boundscheck size(A, 1) == length(b) && size(A, 2) == length(x)
     m, n = size(A)
     @inbounds for i in 1:m
         dot = A[i,1] * convert(T, x[1])
@@ -461,10 +461,10 @@ Apply one step of iterative refinement where the residual is computed with preci
 Stores the result in `x` and returns the norm of the update `δx`. If `x` is not provided
 `x̂` is updated inplace.
 """
-function iterative_refinement_step!(WS::MatrixWorkspace, x̂, b, norm::AbstractNorm=InfNorm(), ::Type{T}=eltype(x̂), ) where T
+function iterative_refinement_step!(WS::MatrixWorkspace, x̂, b, norm::AbstractNorm = InfNorm(), ::Type{T} = eltype(x̂), ) where T
     iterative_refinement_step!(x̂, WS, x̂, b, norm, T)
 end
-function iterative_refinement_step!(x, WS::MatrixWorkspace, x̂, b, norm::AbstractNorm=InfNorm(), ::Type{T}=eltype(x̂)) where T
+function iterative_refinement_step!(x, WS::MatrixWorkspace, x̂, b, norm::AbstractNorm = InfNorm(), ::Type{T} = eltype(x̂)) where T
     residual!(WS.ir_r, WS.A, x̂, b, T)
     δx = LA.ldiv!(WS.ir_δx, WS, WS.ir_r)
     for i in eachindex(x)
@@ -501,7 +501,7 @@ function rcond(LU::LA.LU, anorm, work, rwork)
     n = size(A, 1)
     rcond = Ref{Float64}()
     info = Ref{Int64}()
-    lda = max(1,stride(A,2))
+    lda = max(1, stride(A, 2))
     ccall((LA.LAPACK.@blasfunc(zgecon_), LinearAlgebra.LAPACK.liblapack), Cvoid,
           (Ref{UInt8}, Ref{Int64}, Ptr{ComplexF64}, Ref{Int64},
            Ref{Float64}, Ref{Float64}, Ptr{ComplexF64}, Ptr{Float64},
@@ -525,7 +525,7 @@ function rcond(qr::LA.QRPivoted, work, rwork)
         # Q has condition number 1 in the 2 norm
         # Some experiments indicate that in the Inf norm this is roughly
         # 0.8√n
-    	rcond[] / (0.8*√(n))
+    	rcond[] / (0.8 * √(n))
     else
         rcond[]
     end
@@ -543,13 +543,13 @@ This uses the 1-norm lapack condition estimator described by Highahm in [^H88].
 
 [^H88]: Higham, Nicholas J. "FORTRAN codes for estimating the one-norm of a real or complex matrix, with applications to condition estimation." ACM Transactions on Mathematical Software (TOMS) 14.4 (1988): 381-396.
 """
-function inf_norm_est(lu::LA.LU, g::Union{Nothing,Vector{<:Real}}=nothing, d::Union{Nothing,Vector{<:Real}}=nothing)
+function inf_norm_est(lu::LA.LU, g::Union{Nothing,Vector{<:Real}} = nothing, d::Union{Nothing,Vector{<:Real}} = nothing)
     n = size(lu.factors, 2)
     work = Vector{eltype(lu.factors)}(undef, n)
     rwork = Vector{real(eltype(lu.factors))}(undef, n)
     inf_norm_est(lu, g, d, work, rwork)
 end
-function inf_norm_est(WS::MatrixWorkspace, g::Union{Nothing,Vector{<:Real}}=nothing, d::Union{Nothing,Vector{<:Real}}=nothing)
+function inf_norm_est(WS::MatrixWorkspace, g::Union{Nothing,Vector{<:Real}} = nothing, d::Union{Nothing,Vector{<:Real}} = nothing)
     WS.fact[] == LU_FACT || factorization!(WS, LU_FACT)
     WS.factorized[] || factorize!(WS)
     inf_norm_est(WS.lu, g, d, WS.inf_norm_est_work, WS.inf_norm_est_rwork)
@@ -561,7 +561,7 @@ function inf_norm_est(lu::LA.LU,
     z = ξ = y = work
     x = rwork
 
-    n = size(lu.factors,1)
+    n = size(lu.factors, 1)
     x .= inv(n)
     if d !== nothing
         x ./= d
@@ -624,7 +624,7 @@ function row_scaling_inf!(WS::MatrixWorkspace{T}) where T
     d = WS.row_scaling
     d .= zero(T)
     m = length(d)
-    @inbounds for j=1:size(WS.A, 2), i=1:m
+    @inbounds for j = 1:size(WS.A, 2), i = 1:m
         d[i] += abs(WS.A[i,j])
     end
     # Don't scale zero rows -> set dᵢ = 1 if too small
@@ -633,7 +633,7 @@ function row_scaling_inf!(WS::MatrixWorkspace{T}) where T
         if d[i] < d_max_eps
             d[i] = one(T)
         end
-    end
+end
     d
 end
 
@@ -658,26 +658,38 @@ struct JacobianMonitor{T}
     J::MatrixWorkspace{T}
     cond::Base.RefValue{Float64}
     forward_err::Base.RefValue{Float64}
+    # stats
+    factorizations::Base.RefValue{Int}
+    ldivs::Base.RefValue{Int}
 end
 function JacobianMonitor(A::AbstractMatrix)
     J = MatrixWorkspace(A)
     cond = Ref(1.0)
     forward_err = Ref(0.0)
-    JacobianMonitor(J, cond, forward_err)
+    JacobianMonitor(J, cond, forward_err, Ref(0), Ref(0))
 end
 
 updated!(JM::JacobianMonitor) = updated!(JM.J)
 jacobian(JM::JacobianMonitor) = JM.J
 
-function Base.show(io::IO, JM::JacobianMonitor{T}) where {T}
+function Base.show(io::IO, JM::JacobianMonitor{T}) where T
     println(io, "JacobianMonitor{$T}:")
-    println(io, " • cond → ", round(JM.cond[], sigdigits=5))
-    println(io, " • forward_err → ", round(JM.forward_err[], sigdigits=5))
+    println(io, " • cond → ", round(JM.cond[], sigdigits = 5))
+    println(io, " • forward_err → ", round(JM.forward_err[], sigdigits = 5))
+    println(io, " • # factorizations → ", JM.factorizations[])
+    println(io, " • # ldivs → ", JM.ldivs[])
 end
 
-function reset!(JM::JacobianMonitor)
+"""
+    init!(JM::JacobianMonitor)
+
+(Re-)initialize the `JacobianMonitor`.
+"""
+function init!(JM::JacobianMonitor; keep_stats::Bool=false)
     JM.cond[] = 1.0
     JM.forward_err[] = 0.0
+    JM.factorizations[] = 0.0
+    JM.ldivs[] = 0.0
     JM
 end
 
@@ -693,10 +705,10 @@ forward_err(JM::JacobianMonitor) = JM.forward_err[]
 
 Compute an estimate of the forward error ||x-x̂||/||x|| and update the value in `JM`.
 """
-function forward_err!(JM::JacobianMonitor, x̂::AbstractVector, b::AbstractVector, norm::AbstractNorm, T=eltype(x̂))
+function forward_err!(JM::JacobianMonitor, x̂::AbstractVector, b::AbstractVector, norm::AbstractNorm, T = eltype(x̂))
     forward_err!(x̂, JM, x̂, b, norm, T)
 end
-function forward_err!(x::AbstractVector, JM::JacobianMonitor, x̂::AbstractVector, b::AbstractVector, norm::AbstractNorm, T=eltype(x̂))
+function forward_err!(x::AbstractVector, JM::JacobianMonitor, x̂::AbstractVector, b::AbstractVector, norm::AbstractNorm, T = eltype(x̂))
     norm_x̂ = norm(x̂)
     JM.forward_err[] = iterative_refinement_step!(x, JM.J, x̂, b, norm, T) / norm_x̂
 end
@@ -710,10 +722,10 @@ If `jacobian(JM).fact[] == QR_FACT` then this falls back to [`forward_err!`](@re
 
 [Demmel]: Demmel, James W. Applied numerical linear algebra. Vol. 56. Siam, 1997.
 """
-function strong_forward_err!(JM::JacobianMonitor, x̂::AbstractVector, b::AbstractVector, norm::InfNorm, T=eltype(x̂))
+function strong_forward_err!(JM::JacobianMonitor, x̂::AbstractVector, b::AbstractVector, norm::InfNorm, T = eltype(x̂))
     strong_forward_err!(x̂, JM, x̂, b, norm, T)
 end
-function strong_forward_err!(x::AbstractVector, JM::JacobianMonitor, x̂::AbstractVector, b::AbstractVector, norm::Union{InfNorm, WeightedNorm{InfNorm}}, T=eltype(x̂))
+function strong_forward_err!(x::AbstractVector, JM::JacobianMonitor, x̂::AbstractVector, b::AbstractVector, norm::Union{InfNorm,WeightedNorm{InfNorm}}, T = eltype(x̂))
     if jacobian(JM).fact[] == QR_FACT
         return JM.forward_err[] = forward_err!(x, JM, x̂, b, norm)
     end
@@ -792,8 +804,12 @@ informations, see [`JacobianMonitorUpdates`](@ref).
 function LA.ldiv!(x̂::AbstractVector,
                   JM::JacobianMonitor,
                   b::AbstractVector,
-                  norm::AbstractNorm,
-                  update::JacobianMonitorUpdates=JAC_MONITOR_UPDATE_NOTHING)
+                  norm::AbstractNorm = InfNorm(),
+                  update::JacobianMonitorUpdates = JAC_MONITOR_UPDATE_NOTHING)
+    # stats update
+    JM.factorizations[] += !jacobian(JM).factorized[]
+    JM.ldivs[] += 1
+
     LA.ldiv!(x̂, jacobian(JM), b)
     if update == JAC_MONITOR_UPDATE_FERR || update == JAC_MONITOR_UPDATE_ALL
         forward_err!(JM, x̂, b, norm)
@@ -818,7 +834,7 @@ The implementation follows the algorithm described in [1].
 
 [1] Kannan, Ravindran, and Achim Bachem. "Polynomial algorithms for computing the Smith and Hermite normal forms of an integer matrix." SIAM Journal on Computing 8.4 (1979): 499-507.
 """
-function hnf(A, T=eltype(A))
+function hnf(A, T = eltype(A))
     H = similar(A, T)
     H .= A
     U = similar(A, T)
@@ -827,8 +843,8 @@ function hnf(A, T=eltype(A))
 end
 
 # use checked arithmethic
-⊡(x,y) = Base.checked_mul(x, y)
-⊞(x,y) = Base.checked_add(x, y)
+⊡(x, y) = Base.checked_mul(x, y)
+⊞(x, y) = Base.checked_add(x, y)
 
 """
     hnf!(H, U, A)
@@ -846,7 +862,7 @@ function hnf!(A, U)
     @inbounds for i in 1:n
         U[i,i] = one(eltype(U))
     end
-    @inbounds for i in 1:(n-1)
+    @inbounds for i in 1:(n - 1)
         ii = i ⊞ 1
         for j in 1:i
             if !iszero(A[j, j]) || !iszero(A[j, ii])
@@ -891,7 +907,7 @@ end
             U[i, k] = -U[i, k]
         end
     end
-    @inbounds for z in 1:(k-1)
+    @inbounds for z in 1:(k - 1)
         if !iszero(A[z,z])
             r = -ceil(eltype(A), A[k,z] / A[z,z])
             for i in 1:n

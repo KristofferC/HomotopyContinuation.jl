@@ -170,7 +170,7 @@ end
 mutable struct CoreTrackerState{T, AV<:AbstractVector{Complex{T}}, MaybePatchState <: Union{AbstractAffinePatchState, Nothing}, AN<:AbstractNorm}
     x::AV # current x
     x̂::AV # last prediction
-    x̄::AV # canidate for new x
+    x̄::AV # candidate for new x
     ẋ::Vector{Complex{T}} # derivative at current x
     norm::AN
     step_size::StepSizeModel

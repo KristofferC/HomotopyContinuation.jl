@@ -382,6 +382,7 @@ function PathTracker(prob::AbstractProblem, x::AbstractVector{<:Number};
                 min_step_size=1e-30, kwargs...)
 
     core_tracker_supported, optionskwargs = splitkwargs(kwargs, coretracker_supported_keywords)
+    error("LogHomotopy no more constructed")
     core_tracker = CoreTracker(prob, x;
                         log_transform=true, predictor=Pade21(),
                         min_step_size=min_step_size,

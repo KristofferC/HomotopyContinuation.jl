@@ -66,8 +66,8 @@ weights(WN::WeightedNorm) = WN.weights
 Base.length(WN::WeightedNorm) = length(WN.weights)
 Base.size(WN::WeightedNorm) = (length(WN),)
 Base.copyto!(WN::WeightedNorm, x) = copyto!(WN.weights, x)
-Base.@propagate_inbounds Base.getindex(WN::WeightedNorm, i::Integer) = getindex(WN.weights, i)
-Base.@propagate_inbounds Base.setindex!(WN::WeightedNorm, x, i::Integer) = setindex!(WN.weights, x, i)
+@propagate_inbounds Base.getindex(WN::WeightedNorm, i::Integer) = getindex(WN.weights, i)
+@propagate_inbounds Base.setindex!(WN::WeightedNorm, x, i::Integer) = setindex!(WN.weights, x, i)
 
 
 """
@@ -105,7 +105,7 @@ function update!(w::WeightedNorm, x::AbstractVector)
         elseif wᵢ > w.options.scale_max * norm_x
             wᵢ = w.options.scale_max * norm_x
         end
-        w[i] = max(wᵢ, opts.scale_abs_min)
+        w[i] = max(wᵢ, w.options.scale_abs_min)
     end
     w
 end
